@@ -17,12 +17,19 @@ RUN git clone --depth=1 https://github.com/moeru-ai/airi.git .
 RUN npm install -g pnpm@9
 
 # Install all dependencies (full monorepo, with native module compilation)
-RUN pnpm install --no-frozen-lockfile 2>&1 | tail -20
+# Install dependencies - allow install to proceed even if optional native modules fail
+RUN pnpm install --no-frozen-lockfile 2>&1 | tail -20 || \
+    pnpm install --no-frozen-lockfile --ignore-scripts 2>&1 | tail -20
 
-# Build stage-web
-# Build stage-web using pnpm filter from monorepo root (so vite binary is found)
-WORKDIR /build
-RUN pnpm --filter @proj-airi/stage-web build
+# Ensure vite binary is available by running install in stage-web dir
+RUN cd /build/apps/stage-web && \
+    node_modules/.bin/vite --version 2>/dev/null || \
+    (pnpm install --no-frozen-lockfile --ignore-scripts && echo "stage-web deps installed")
+
+# Build stage-web using local node_modules/.bin/vite
+WORKDIR /build/apps/stage-web
+RUN node_modules/.bin/vite build || \
+    (pnpm install --no-frozen-lockfile && node_modules/.bin/vite build)
 
 # Stage 2: Serve with nginx
 FROM nginx:alpine
