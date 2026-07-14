@@ -12,12 +12,7 @@ RUN git clone --depth=1 https://github.com/moeru-ai/airi.git .
 RUN npm install -g pnpm@9
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
-
-# Download Live2D SDK (required for build)
-RUN mkdir -p apps/stage-web/public/assets/js && \
-    curl -sL "https://github.com/moeru-ai/airi/releases/download/v0.1.0/CubismSdkForWeb-5-r.3.zip" \
-    -o /tmp/cubism.zip 2>/dev/null || true
+RUN pnpm install --no-frozen-lockfile
 
 # Build stage-web
 WORKDIR /build/apps/stage-web
