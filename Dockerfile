@@ -1,51 +1,34 @@
 # Stage 1: Build AIRI stage-web
-FROM node:20-alpine AS builder
+# Use Debian-based image for full native module support (glibc required by canvas, node-pty, isolated-vm)
+FROM node:20-bookworm AS builder
 
-# Install system deps for native modules
-RUN apk add --no-cache git python3 make g++ curl bash \
-    cairo-dev pango-dev jpeg-dev giflib-dev librsvg-dev pixman-dev \
-    pkgconfig fontconfig-dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git python3 make g++ curl \
+    libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev \
+    libpixman-1-dev pkg-config libfontconfig1-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
-# Clone only the packages needed for stage-web
-RUN git clone --depth=1 https://github.com/moeru-ai/airi.git /airi-full
-
-# Copy only stage-web and its workspace dependencies
-RUN cp -r /airi-full/apps/stage-web /build/stage-web && \
-    cp /airi-full/package.json /build/ && \
-    cp /airi-full/pnpm-workspace.yaml /build/ && \
-    mkdir -p /build/packages && \
-    for pkg in /airi-full/packages/*/; do cp -r "$pkg" /build/packages/; done
-
-# Copy pnpm-lock.yaml
-RUN cp /airi-full/pnpm-lock.yaml /build/ 2>/dev/null || true
+# Clone AIRI
+RUN git clone --depth=1 https://github.com/moeru-ai/airi.git .
 
 # Install pnpm
 RUN npm install -g pnpm@9
 
-# Install only stage-web dependencies, ignore optional native modules
-RUN cd /build && pnpm install --no-frozen-lockfile --ignore-scripts 2>&1 || \
-    pnpm install --no-frozen-lockfile --ignore-scripts --shamefully-hoist
+# Install all dependencies (full monorepo, with native module compilation)
+RUN pnpm install --no-frozen-lockfile 2>&1 | tail -20
 
 # Build stage-web
-RUN cd /build/stage-web && pnpm build
+WORKDIR /build/apps/stage-web
+RUN pnpm build
 
 # Stage 2: Serve with nginx
 FROM nginx:alpine
 
-COPY --from=builder /build/stage-web/dist /usr/share/nginx/html
+COPY --from=builder /build/apps/stage-web/dist /usr/share/nginx/html
 
 # nginx config for SPA routing
-RUN echo 'server { \
-    listen 80; \
-    root /usr/share/nginx/html; \
-    index index.html; \
-    location / { \
-        try_files $uri $uri/ /index.html; \
-    } \
-    add_header Cache-Control "no-cache, no-store, must-revalidate"; \
-    add_header X-Frame-Options SAMEORIGIN; \
-}' > /etc/nginx/conf.d/default.conf
+RUN printf 'server {\n  listen 80;\n  root /usr/share/nginx/html;\n  index index.html;\n  location / {\n    try_files $uri $uri/ /index.html;\n  }\n  add_header Cache-Control "no-cache, no-store, must-revalidate";\n}\n' > /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
