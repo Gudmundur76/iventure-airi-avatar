@@ -15,19 +15,18 @@ RUN git clone --depth=1 https://github.com/moeru-ai/airi.git .
 # Install pnpm
 RUN npm install -g pnpm@9
 
-# Override .npmrc to skip optional/Electron scripts
-RUN echo "ignore-scripts=false" >> .npmrc && \
-    echo "node-linker=hoisted" >> .npmrc
+# Override .npmrc: hoisted linker puts all binaries in /build/node_modules/.bin/
+RUN printf 'node-linker=hoisted\n' >> .npmrc
 
-# Install ONLY stage-web and its workspace deps (excludes Electron/Tamagotchi)
-# Use --filter to scope installation
+# Install ONLY stage-web and its workspace deps, ignore scripts to skip Electron/native
 RUN pnpm install --no-frozen-lockfile \
     --filter @proj-airi/stage-web... \
-    2>&1 | tail -30
+    --ignore-scripts \
+    2>&1 | tail -10
 
-# Build stage-web
+# Run vite build using the hoisted binary path
 WORKDIR /build/apps/stage-web
-RUN ../../node_modules/.bin/vite build
+RUN /build/node_modules/.bin/vite build
 
 # Stage 2: Serve with nginx
 FROM nginx:alpine
