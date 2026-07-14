@@ -20,8 +20,9 @@ RUN npm install -g pnpm@9
 RUN pnpm install --no-frozen-lockfile 2>&1 | tail -20
 
 # Build stage-web
-WORKDIR /build/apps/stage-web
-RUN pnpm build
+# Build stage-web using pnpm filter from monorepo root (so vite binary is found)
+WORKDIR /build
+RUN pnpm --filter @proj-airi/stage-web build
 
 # Stage 2: Serve with nginx
 FROM nginx:alpine
