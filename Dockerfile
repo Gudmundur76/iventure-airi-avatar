@@ -1,5 +1,4 @@
-# Stage 1: Build AIRI stage-web
-# Use Debian-based image for full native module support (glibc required by canvas, node-pty, isolated-vm)
+# Stage 1: Build AIRI stage-web (web-only, no Electron/Tamagotchi)
 FROM node:20-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -16,20 +15,19 @@ RUN git clone --depth=1 https://github.com/moeru-ai/airi.git .
 # Install pnpm
 RUN npm install -g pnpm@9
 
-# Install all dependencies (full monorepo, with native module compilation)
-# Install dependencies - allow install to proceed even if optional native modules fail
-RUN pnpm install --no-frozen-lockfile 2>&1 | tail -20 || \
-    pnpm install --no-frozen-lockfile --ignore-scripts 2>&1 | tail -20
+# Override .npmrc to skip optional/Electron scripts
+RUN echo "ignore-scripts=false" >> .npmrc && \
+    echo "node-linker=hoisted" >> .npmrc
 
-# Ensure vite binary is available by running install in stage-web dir
-RUN cd /build/apps/stage-web && \
-    node_modules/.bin/vite --version 2>/dev/null || \
-    (pnpm install --no-frozen-lockfile --ignore-scripts && echo "stage-web deps installed")
+# Install ONLY stage-web and its workspace deps (excludes Electron/Tamagotchi)
+# Use --filter to scope installation
+RUN pnpm install --no-frozen-lockfile \
+    --filter @proj-airi/stage-web... \
+    2>&1 | tail -30
 
-# Build stage-web using local node_modules/.bin/vite
+# Build stage-web
 WORKDIR /build/apps/stage-web
-RUN node_modules/.bin/vite build || \
-    (pnpm install --no-frozen-lockfile && node_modules/.bin/vite build)
+RUN ../../node_modules/.bin/vite build
 
 # Stage 2: Serve with nginx
 FROM nginx:alpine
