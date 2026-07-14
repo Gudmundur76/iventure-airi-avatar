@@ -1,4 +1,4 @@
-# Stage 1: Build AIRI stage-web (web-only, no Electron/Tamagotchi)
+# Stage 1: Build AIRI stage-web using npm (bypasses pnpm lockfile version issues)
 FROM node:20-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -15,25 +15,27 @@ RUN git clone --depth=1 https://github.com/moeru-ai/airi.git .
 # Install pnpm
 RUN npm install -g pnpm@9
 
-# Override .npmrc: hoisted linker puts all binaries in /build/node_modules/.bin/
-RUN printf 'node-linker=hoisted\n' >> .npmrc
-
-# Install ONLY stage-web and its workspace deps, ignore scripts to skip Electron/native
+# First: install workspace packages that stage-web depends on
+# These are local packages in the monorepo
 RUN pnpm install --no-frozen-lockfile \
-    --filter @proj-airi/stage-web... \
+    --filter @proj-airi/stage-web \
     --ignore-scripts \
-    2>&1 | tail -10
+    --shamefully-hoist \
+    2>&1 | tail -5 || true
 
-# Run vite build using the hoisted binary path
+# Change to stage-web and install its deps directly with npm
+# This bypasses the monorepo lockfile completely
 WORKDIR /build/apps/stage-web
-RUN /build/node_modules/.bin/vite build
+RUN npm install --ignore-scripts --legacy-peer-deps 2>&1 | tail -10
+
+# Build
+RUN npx vite build
 
 # Stage 2: Serve with nginx
 FROM nginx:alpine
 
 COPY --from=builder /build/apps/stage-web/dist /usr/share/nginx/html
 
-# nginx config for SPA routing
 RUN printf 'server {\n  listen 80;\n  root /usr/share/nginx/html;\n  index index.html;\n  location / {\n    try_files $uri $uri/ /index.html;\n  }\n  add_header Cache-Control "no-cache, no-store, must-revalidate";\n}\n' > /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
