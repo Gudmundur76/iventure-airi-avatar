@@ -254,6 +254,89 @@
     }
     #contact a:hover { color: var(--accent); }
 
+
+    /* ── Book a Call CTA ── */
+    #book-cta {
+      position: fixed;
+      top: 18px;
+      right: 28px;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #book-btn {
+      padding: 8px 18px;
+      border-radius: 20px;
+      border: 1px solid rgba(79,195,247,0.5);
+      background: rgba(79,195,247,0.12);
+      color: var(--accent);
+      font-family: var(--font-body);
+      font-size: 0.78rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      text-decoration: none;
+      transition: all 0.18s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+    #book-btn:hover { background: rgba(79,195,247,0.22); border-color: var(--accent); transform: scale(1.03); }
+    #book-btn:active { transform: scale(0.97); }
+
+    /* ── Identify card ── */
+    #identify-card {
+      position: fixed;
+      bottom: 220px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 48px);
+      max-width: 520px;
+      z-index: 15;
+      background: rgba(0,13,24,0.88);
+      border: 1px solid rgba(79,195,247,0.35);
+      border-radius: 16px;
+      padding: 16px 18px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      animation: msg-in 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+    #identify-card.visible { display: flex; }
+    #identify-card p { font-size: 0.85rem; color: rgba(255,255,255,0.85); line-height: 1.5; }
+    #identify-fields { display: flex; gap: 8px; }
+    .id-input {
+      flex: 1;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(79,195,247,0.2);
+      border-radius: 10px;
+      padding: 9px 12px;
+      font-family: var(--font-body);
+      font-size: 0.82rem;
+      color: var(--fg);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .id-input::placeholder { color: rgba(255,255,255,0.35); }
+    .id-input:focus { border-color: var(--accent); }
+    #identify-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .id-btn {
+      padding: 7px 16px;
+      border-radius: 10px;
+      font-family: var(--font-body);
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      border: none;
+    }
+    .id-btn.primary { background: var(--accent); color: #000d18; }
+    .id-btn.primary:hover { background: #7dd3fc; }
+    .id-btn.skip { background: transparent; color: var(--muted); border: 1px solid rgba(255,255,255,0.12); }
+    .id-btn.skip:hover { color: var(--fg); border-color: rgba(255,255,255,0.3); }
+
     /* ── Mobile ── */
     @media (max-width: 480px) {
       #logo { font-size: 1.1rem; }
@@ -269,8 +352,26 @@
 
   <header id="header">
     <div id="logo">i<span>V</span>enture</div>
-    <div id="status-dot"></div>
   </header>
+
+  <!-- Book a Call CTA (top right) -->
+  <div id="book-cta">
+    <div id="status-dot"></div>
+    <a id="book-btn" href="mailto:hello@iventure.studio?subject=Book%20a%20call%20with%20iVenture%20Studio" target="_blank">Book a Call</a>
+  </div>
+
+  <!-- Identify card -->
+  <div id="identify-card">
+    <p>Mind sharing your name and email? I'll have someone from iVenture Studio follow up with you directly.</p>
+    <div id="identify-fields">
+      <input class="id-input" id="id-name" type="text" placeholder="Your name" autocomplete="name" />
+      <input class="id-input" id="id-email" type="email" placeholder="Email address" autocomplete="email" />
+    </div>
+    <div id="identify-actions">
+      <button class="id-btn skip" id="id-skip">Maybe later</button>
+      <button class="id-btn primary" id="id-submit">Send &#8594;</button>
+    </div>
+  </div>
 
   <!-- Conversation history -->
   <div id="conversation"></div>
@@ -307,6 +408,7 @@
     // ── Config ──
     // All LLM calls go through the OS dashboard server — API key never in browser
     const OS_API = 'https://os.gummi.lt/api/trpc/publicChat.send';
+    const OS_IDENTIFY_API = 'https://os.gummi.lt/api/trpc/publicChat.identify';
     const SESSION_ID = 'session-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now();
 
     // ── State ──
@@ -317,6 +419,9 @@
     let currentAudio = null;
     let chatHistory = [];
     let thinkingEl = null;
+    let userMessageCount = 0;
+    let identifyShown = false;
+    let identified = false;
 
     // ── Elements ──
     const micBtn = document.getElementById('mic-btn');
@@ -324,6 +429,11 @@
     const textInput = document.getElementById('text-input');
     const conversation = document.getElementById('conversation');
     const hint = document.getElementById('hint');
+    const identifyCard = document.getElementById('identify-card');
+    const idName = document.getElementById('id-name');
+    const idEmail = document.getElementById('id-email');
+    const idSkip = document.getElementById('id-skip');
+    const idSubmit = document.getElementById('id-submit');
 
     // ── Conversation helpers ──
     function addMessage(role, text) {
@@ -369,6 +479,7 @@
       textInput.value = '';
       addMessage('user', text);
       setThinking(true);
+      userMessageCount++;
 
       try {
         const res = await fetch(OS_API, {
@@ -390,6 +501,11 @@
         setThinking(false);
         addMessage('agent', reply);
         speak(reply);
+        // Show identify card after 3 user messages (once only)
+        if (userMessageCount >= 3 && !identifyShown && !identified) {
+          identifyShown = true;
+          setTimeout(() => identifyCard.classList.add('visible'), 900);
+        }
       } catch (err) {
         setThinking(false);
         if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
@@ -454,6 +570,28 @@
         return;
       }
       recognition.start();
+    });
+
+    // ── Identify card handlers ──
+    idSkip.addEventListener('click', () => {
+      identifyCard.classList.remove('visible');
+      identified = true;
+    });
+    idSubmit.addEventListener('click', async () => {
+      const name = idName.value.trim();
+      const email = idEmail.value.trim();
+      identifyCard.classList.remove('visible');
+      identified = true;
+      if (name || email) {
+        try {
+          await fetch(OS_IDENTIFY_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ json: { sessionId: SESSION_ID, name, email } })
+          });
+        } catch (_) {}
+        addMessage('agent', `Thanks${name ? ', ' + name : ''}! Someone from iVenture Studio will be in touch${email ? ' at ' + email : ''} soon.`);
+      }
     });
 
     // ── Greeting on load ──
